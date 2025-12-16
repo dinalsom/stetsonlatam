@@ -180,6 +180,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'notification_url' => 'https://stetsonlatam.com/php/webhook_mercado_pago',
             'external_reference' => (string)$pedido_id
         ];
+        //Prueba
 
         // 4.3. Convertimos el array a formato JSON
         $preference_payload = json_encode($preference_data);
