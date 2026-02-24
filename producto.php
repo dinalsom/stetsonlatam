@@ -342,7 +342,7 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
             </div>
 
             <div class="actions-container" style="display: flex; align-items: center; margin-top: 15px;">
-              <button class="add-to-cart-btn">Agregar al carrito</button>
+              <button class="add-to-cart-btn">Comprar por WhatsApp</button>
               <button id="wishlist-btn" style="background:none; border:none; cursor:pointer; font-size: 1.5em; color: #3c3737; margin-left: 15px;">
                 <i class="far fa-heart"></i>
               </button>
@@ -485,7 +485,7 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
           }
         }
         addToCartBtn.disabled = availableStock <= 0;
-        addToCartBtn.textContent = availableStock <= 0 ? "Sin Stock" : "Agregar al carrito";
+        addToCartBtn.textContent = availableStock <= 0 ? "Sin Stock" : "Comprar por WhatsApp";
       }
       colorBtns.forEach(btn => {
         btn.addEventListener('click', function() {
@@ -525,6 +525,7 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
         }
       });
       addToCartBtn.addEventListener('click', function() {
+        // Validar selección de variantes
         if ((colorBtns.length > 0 && !selectedColorId) || (sizeBtns.length > 0 && !selectedSizeId)) {
           Swal.fire({
             icon: 'warning',
@@ -532,6 +533,8 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
           });
           return;
         }
+
+        // Validar stock
         if (parseInt(qtyInput.value) > availableStock) {
           Swal.fire({
             icon: 'error',
@@ -539,6 +542,7 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
           });
           return;
         }
+
         if (availableStock <= 0) {
           Swal.fire({
             icon: 'error',
@@ -546,13 +550,43 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
           });
           return;
         }
-        const cartData = {
-          id: productId,
-          quantity: parseInt(qtyInput.value),
-          color: selectedColorId,
-          size: selectedSizeId
-        };
-        addToCart(cartData);
+
+        // ====== DATOS PARA EL MENSAJE ======
+        const quantity = parseInt(qtyInput.value);
+
+        // Obtener nombre del color seleccionado
+        let selectedColorName = 'No aplica';
+        if (selectedColorId) {
+          const selectedColorBtn = document.querySelector(`.color-btn[data-color-id="${selectedColorId}"]`);
+          selectedColorName = selectedColorBtn ? selectedColorBtn.getAttribute('title') : 'No especificado';
+        }
+
+        // Obtener nombre de la talla seleccionada
+        let selectedSizeName = 'No aplica';
+        if (selectedSizeId) {
+          const selectedSizeBtn = document.querySelector(`.size-btn[data-size-id="${selectedSizeId}"]`);
+          selectedSizeName = selectedSizeBtn ? selectedSizeBtn.textContent.trim() : 'No especificada';
+        }
+
+        const productName = <?php echo json_encode($producto['name']); ?>;
+        const productPrice = <?php echo json_encode(number_format($producto['price'], 2)); ?>;
+        const productUrl = window.location.href;
+
+        // ⚠️ CAMBIA ESTE NÚMERO por el WhatsApp real del negocio (con código país, sin + ni espacios)
+        const whatsappNumber = "573176437238";
+
+        const message = `Hola, quiero comprar este producto:%0A%0A` +
+          `🧢 Producto: ${productName}%0A` +
+          `🎨 Color: ${selectedColorName}%0A` +
+          `📏 Talla: ${selectedSizeName}%0A` +
+          `🔢 Cantidad: ${quantity}%0A` +
+          `💲 Precio: $${productPrice}%0A%0A` +
+          `🔗 Link: ${productUrl}`;
+
+        const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${message}`;
+
+        // Redirigir a WhatsApp
+        window.open(whatsappUrl, '_blank');
       });
 
       const initialColorId = colorBtns.length > 0 ? colorBtns[0].dataset.colorId : 'default';
