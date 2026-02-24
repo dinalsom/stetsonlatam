@@ -75,6 +75,10 @@ try {
 $page_title = htmlspecialchars($producto['name']) . ' | Stetson LATAM';
 $meta_description = htmlspecialchars(substr(strip_tags($producto['description']), 0, 155)) . '...';
 $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
+$whatsapp_number = "573176437238";
+$wholesale_whatsapp_text = rawurlencode(
+  "Hola, quiero información de compra al por mayor (mínimo 8 unidades) del producto: " . $producto['name']
+);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -99,6 +103,72 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
   <meta property="og:image" content="https://www.stetsonlatam.com/<?php echo htmlspecialchars($producto['image']); ?>" />
   <meta property="og:type" content="product" />
   <style>
+    .wholesale-info-box {
+      margin: 12px 0 18px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: #f8f9fa;
+      border: 1px solid #ececec;
+      border-left: 4px solid #3c3737;
+      border-radius: 8px;
+    }
+
+    .wholesale-info-icon {
+      font-size: 1.1rem;
+      line-height: 1;
+      color: #25D366;
+      margin-top: 2px;
+    }
+
+    .wholesale-info-content {
+      flex: 1;
+    }
+
+    .wholesale-info-title {
+      margin: 0 0 4px 0;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #3c3737;
+    }
+
+    .wholesale-info-text {
+      margin: 0;
+      font-size: 0.9rem;
+      line-height: 1.45;
+      color: #555;
+    }
+
+    .wholesale-info-text strong {
+      color: #3c3737;
+    }
+
+    .wholesale-info-link {
+      color: #3c3737;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .wholesale-info-link:hover {
+      opacity: 0.85;
+    }
+
+    @media (max-width: 768px) {
+      .wholesale-info-box {
+        padding: 10px 12px;
+        gap: 8px;
+      }
+
+      .wholesale-info-title {
+        font-size: 0.9rem;
+      }
+
+      .wholesale-info-text {
+        font-size: 0.85rem;
+      }
+    }
     .reviews-section {
       max-width: 800px;
       margin: 40px auto;
@@ -309,7 +379,23 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
           <div class="product-details">
             <h1 class="product-title"><?php echo htmlspecialchars($producto['name']); ?></h1>
             <p class="product-price">$<?php echo number_format($producto['price'], 2); ?></p>
-
+            <div class="wholesale-info-box">
+              <div class="wholesale-info-icon">
+                <i class="fab fa-whatsapp"></i>
+              </div>
+              <div class="wholesale-info-content">
+                <p class="wholesale-info-title">Compra al detal y atención mayorista</p>
+                <p class="wholesale-info-text">
+                  Este valor corresponde al <strong>precio al detal</strong>. Si deseas comprar
+                  <strong>8 unidades o más</strong> (precio mayorista),
+                  <a class="wholesale-info-link"
+                    href="https://wa.me/<?php echo $whatsapp_number; ?>?text=<?php echo $wholesale_whatsapp_text; ?>"
+                    target="_blank"
+                    rel="noopener noreferrer">escríbenos por WhatsApp</a>
+                  y te compartimos la información completa.
+                </p>
+              </div>
+            </div>
             <?php if (!empty($colors)): ?>
               <div class="options-group">
                 <h3 class="options-label">Color</h3>
@@ -573,7 +659,7 @@ $canonical_url = "https://www.stetsonlatam.com/producto/" . $product_id;
         const productUrl = window.location.href;
 
         // ⚠️ CAMBIA ESTE NÚMERO por el WhatsApp real del negocio (con código país, sin + ni espacios)
-        const whatsappNumber = "573176437238";
+        const whatsappNumber = <?php echo json_encode($whatsapp_number); ?>;
 
         const message = `Hola, quiero comprar este producto:%0A%0A` +
           `🧢 Producto: ${productName}%0A` +
