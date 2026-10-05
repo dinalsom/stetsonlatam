@@ -154,13 +154,37 @@ if (!empty($categorias_flat)) {
           </path>
         </svg>
       </button>
-      <button id="cart-btn" class="p-2 h-10 w-10 flex items-center justify-center bg-[#f1eeea] rounded-lg">
+      <button id="cart-btn" class="p-2 h-10 w-10 flex items-center justify-center bg-[#f1eeea] rounded-lg relative">
         <svg xmlns="http://www.w3.org/2000/svg" width="20px" height="20px" fill="currentColor" viewBox="0 0 256 256">
           <path
             d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,160H40V56H216V200ZM176,88a48,48,0,0,1-96,0,8,8,0,0,1,16,0,32,32,0,0,0,64,0,8,8,0,0,1,16,0Z">
           </path>
         </svg>
+        <span id="cart-count"
+          style="display:none; position:absolute; top:-4px; right:-4px; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:#3f1e1f; color:#fff; font-size:11px; line-height:18px; font-weight:700; text-align:center;"></span>
       </button>
+      <script>
+        // Contador del carrito de invitado. Va aquí, y no en cart.js, porque
+        // la cabecera se muestra en todas las páginas y cart.js solo se carga
+        // en las de producto y carrito.
+        (function() {
+          try {
+            if (localStorage.getItem('jwt')) return;
+            var items = JSON.parse(localStorage.getItem('guest_cart') || '[]');
+            if (!Array.isArray(items)) return;
+            var total = items.reduce(function(suma, item) {
+              return suma + (parseInt(item.quantity) || 0);
+            }, 0);
+            var badge = document.getElementById('cart-count');
+            if (badge && total > 0) {
+              badge.textContent = total;
+              badge.style.display = 'inline-block';
+            }
+          } catch (e) {
+            /* Sin almacenamiento disponible: el contador simplemente no se muestra. */
+          }
+        })();
+      </script>
       <a id="wishlist-link" href="/wishlist" title="Mi Lista de Deseos" class="p-2 h-10 w-10 flex items-center justify-center bg-[#f1eeea] rounded-lg">
         <svg xmlns="http://www.w3.org/2000/svg" width="20px" height="20px" fill="currentColor" viewBox="0 0 256 256">
           <path d="M128,216S28,160,28,92A52,52,0,0,1,80,40a52,52,0,0,1,48,48,52,52,0,0,1,48-48,52,52,0,0,1,52,52C228,160,128,216,128,216ZM80,56A36,36,0,0,0,44,92c0,42.59,62.26,90.46,84,103.41,21.74-12.95,84-60.82,84-103.41A36,36,0,0,0,176,56a35.82,35.82,0,0,0-30.33,18.49,8,8,0,0,1-13.34,0A35.82,35.82,0,0,0,80,56Z"></path>

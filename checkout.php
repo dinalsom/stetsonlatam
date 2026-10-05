@@ -123,6 +123,16 @@
 
 
     <body>
+        <script>
+            // El checkout necesita cuenta: es donde se guardan el pedido, la
+            // dirección y el pago. Un invitado que llegue aquí directamente
+            // vuelve al carrito, donde se le ofrece crear la cuenta sin perder
+            // lo que ya había añadido.
+            if (!localStorage.getItem('jwt')) {
+                window.location.replace('/cart');
+            }
+        </script>
+
         <?php include 'header.php'; ?>
 
         <main class="checkout-grid">

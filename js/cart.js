@@ -1,47 +1,169 @@
-//Variable para mantener el estado actual del carrito
+// Carrito de Stetson LATAM
+//
+// Funciona en dos modos:
+//   - Con sesión iniciada: el carrito vive en la base de datos (igual que antes).
+//   - Sin sesión (invitado): el carrito vive en el navegador (localStorage).
+//
+// Cuando el invitado inicia sesión, su carrito se fusiona automáticamente con
+// el de su cuenta y se borra del navegador. La cuenta sigue siendo necesaria
+// para pagar, pero ya no para empezar a comprar.
+
+const GUEST_CART_KEY = 'guest_cart';
+
+// Variable para mantener el estado actual del carrito
 let currentCartItems = [];
 
-document.addEventListener("DOMContentLoaded", () => {
-  const jwt = localStorage.getItem("jwt");
+// ---------------------------------------------------------------------------
+// Carrito de invitado (navegador)
+// ---------------------------------------------------------------------------
 
-  if (document.getElementById('cart-items-container')) {
-    if (jwt) {
-      loadCart();
-    } else {
-      renderCart([]);
+function getGuestCart() {
+  try {
+    const raw = localStorage.getItem(GUEST_CART_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    // Si el contenido quedó corrupto, empezamos de cero en vez de romper la página.
+    console.warn('Carrito de invitado ilegible, se reinicia:', error);
+    return [];
+  }
+}
+
+function saveGuestCart(items) {
+  try {
+    localStorage.setItem(GUEST_CART_KEY, JSON.stringify(items));
+  } catch (error) {
+    // Modo incógnito o almacenamiento lleno.
+    console.warn('No se pudo guardar el carrito de invitado:', error);
+  }
+  updateCartBadge();
+}
+
+function guestKey(item) {
+  return `${item.producto_id}-${item.color_id}-${item.size_id}`;
+}
+
+function guestCartCount() {
+  return getGuestCart().reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+}
+
+// Muestra el número de artículos sobre el ícono del carrito, si existe.
+function updateCartBadge() {
+  const badge = document.getElementById('cart-count');
+  if (!badge) return;
+
+  const count = localStorage.getItem('jwt') ? null : guestCartCount();
+  if (count === null) return;
+
+  badge.textContent = count > 0 ? count : '';
+  badge.style.display = count > 0 ? 'inline-block' : 'none';
+}
+
+// ---------------------------------------------------------------------------
+// Fusión del carrito de invitado al iniciar sesión
+// ---------------------------------------------------------------------------
+
+async function mergeGuestCart() {
+  const jwt = localStorage.getItem('jwt');
+  const guestItems = getGuestCart();
+
+  if (!jwt || guestItems.length === 0) return false;
+
+  for (const item of guestItems) {
+    try {
+      await fetch('/php/cart/add_to_cart', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + jwt,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          producto_id: item.producto_id,
+          quantity: item.quantity,
+          color_id: item.color_id,
+          size_id: item.size_id
+        })
+      });
+    } catch (error) {
+      // Si una línea falla (por stock, por ejemplo), seguimos con las demás.
+      console.error('No se pudo fusionar un artículo del carrito:', error);
     }
   }
 
-  //Listener para el botón de proceder al pago
+  localStorage.removeItem(GUEST_CART_KEY);
+  updateCartBadge();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Arranque
+// ---------------------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const jwt = localStorage.getItem('jwt');
+
+  // Si el visitante acaba de iniciar sesión y traía carrito, lo pasamos a su cuenta.
+  if (jwt) {
+    await mergeGuestCart();
+  }
+
+  updateCartBadge();
+
+  if (document.getElementById('cart-items-container')) {
+    loadCart();
+  }
+
+  // Listener para el botón de proceder al pago
   const checkoutBtn = document.getElementById('checkout-btn');
   if (checkoutBtn) {
     checkoutBtn.addEventListener('click', (e) => {
-      e.preventDefault(); // Prevenimos la navegación por defecto del enlace
+      e.preventDefault();
 
-      // Validación: ¿Hay items en el carrito?
       if (currentCartItems.length === 0) {
         Swal.fire({
           icon: 'warning',
-          title: 'Carrito Vacío',
+          title: 'Carrito vacío',
           text: 'Debes añadir al menos un artículo para proceder al pago.'
         });
-      } else {
-        // Si la validación pasa, redirigimos al checkout
-        window.location.href = checkoutBtn.href;
+        return;
       }
+
+      // El pago sí requiere cuenta: es donde se guardan el pedido y la dirección.
+      if (!localStorage.getItem('jwt')) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Un último paso',
+          text: 'Para finalizar tu compra necesitas una cuenta. Tu carrito se conserva.',
+          showCancelButton: true,
+          confirmButtonText: 'Crear cuenta o entrar',
+          cancelButtonText: 'Seguir viendo',
+          confirmButtonColor: '#3f1e1f',
+          cancelButtonColor: '#6b7280'
+        }).then((result) => {
+          if (result.isConfirmed && typeof openAuthModal === 'function') {
+            openAuthModal(true);
+          }
+        });
+        return;
+      }
+
+      window.location.href = checkoutBtn.href;
     });
   }
 });
 
+// ---------------------------------------------------------------------------
+// Añadir al carrito
+// ---------------------------------------------------------------------------
+
 function addToCart(productData) {
-  const jwt = localStorage.getItem("jwt");
+  const jwt = localStorage.getItem('jwt');
+
   if (!jwt) {
-    // Podrías redirigir al login o mostrar un mensaje
-    Swal.fire('Error', 'Debes iniciar sesión para añadir artículos al carrito.', 'error');
+    addToGuestCart(productData);
     return;
   }
 
-  // RUTA CORREGIDA
   fetch('/php/cart/add_to_cart', {
     method: 'POST',
     headers: {
@@ -58,22 +180,87 @@ function addToCart(productData) {
     .then(res => res.json())
     .then(data => {
       if (data.success) {
-        Swal.fire({ icon: 'success', title: '¡Añadido al carrito!', showConfirmButton: false, timer: 1500 });
+        notifyAdded();
       } else {
         Swal.fire({ icon: 'error', title: 'Error', text: data.message });
       }
+    })
+    .catch(() => {
+      Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo conectar con el servidor.' });
     });
 }
 
+function addToGuestCart(productData) {
+  const items = getGuestCart();
+
+  const nuevo = {
+    producto_id: parseInt(productData.id),
+    color_id: parseInt(productData.color),
+    size_id: parseInt(productData.size),
+    quantity: parseInt(productData.quantity) || 1
+  };
+
+  if (!nuevo.producto_id || !nuevo.color_id || !nuevo.size_id) {
+    Swal.fire({ icon: 'warning', text: 'Seleccione color y talla.' });
+    return;
+  }
+
+  const existente = items.find(item => guestKey(item) === guestKey(nuevo));
+  if (existente) {
+    existente.quantity += nuevo.quantity;
+  } else {
+    items.push(nuevo);
+  }
+
+  saveGuestCart(items);
+  notifyAdded();
+
+  if (document.getElementById('cart-items-container')) {
+    loadCart();
+  }
+}
+
+function notifyAdded() {
+  Swal.fire({
+    icon: 'success',
+    title: '¡Añadido al carrito!',
+    showConfirmButton: false,
+    timer: 1500
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cargar y dibujar el carrito
+// ---------------------------------------------------------------------------
+
 async function loadCart() {
-  const jwt = localStorage.getItem("jwt");
+  const jwt = localStorage.getItem('jwt');
   const container = document.getElementById('cart-items-container');
   if (!container) return;
 
   try {
-    // RUTA CORREGIDA
-    const res = await fetch('/php/cart/get_cart', { method: 'GET', headers: { 'Authorization': 'Bearer ' + jwt } });
-    const data = await res.json();
+    let data;
+
+    if (jwt) {
+      const res = await fetch('/php/cart/get_cart', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + jwt }
+      });
+      data = await res.json();
+    } else {
+      const items = getGuestCart();
+      if (items.length === 0) {
+        renderCart([]);
+        return;
+      }
+      const res = await fetch('/php/cart/guest_cart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+      data = await res.json();
+    }
+
     if (data.success) {
       renderCart(data.cart);
     } else {
@@ -91,7 +278,6 @@ function renderCart(items) {
   const summarySubtotal = document.getElementById('summary-subtotal');
   const summaryTotal = document.getElementById('summary-total');
 
-  // NUEVO: Actualizamos nuestra variable global con los items
   currentCartItems = items || [];
 
   container.innerHTML = '';
@@ -110,7 +296,7 @@ function renderCart(items) {
                 <img src="${item.image}" alt="${item.name}" class="item-image">
                 <div class="item-details">
                     <h3>${item.name}</h3>
-                    ${item.size_name ? `<p>Size: ${item.size_name}</p>` : ''}
+                    ${item.size_name ? `<p>Talla: ${item.size_name}</p>` : ''}
                     ${item.color_name ? `<p>Color: ${item.color_name}</p>` : ''}
                 </div>
                 <div class="item-quantity" data-stock="${item.stock}">
@@ -131,7 +317,7 @@ function renderCart(items) {
 
 // Envía datos (POST) a la API del carrito
 async function postToCartAPI(endpoint, body) {
-  const jwt = localStorage.getItem("jwt");
+  const jwt = localStorage.getItem('jwt');
   if (!jwt) return { success: false, message: 'Not logged in' };
 
   try {
@@ -141,11 +327,10 @@ async function postToCartAPI(endpoint, body) {
       body: JSON.stringify(body)
     });
 
-    if (res.status === 204 || !res.headers.get("content-length") || res.headers.get("content-length") === "0") {
+    if (res.status === 204 || !res.headers.get('content-length') || res.headers.get('content-length') === '0') {
       return { success: true };
     }
 
-    // Si hay contenido, intentamos leerlo como JSON
     const data = await res.json();
     return data;
   } catch (error) {
@@ -154,28 +339,45 @@ async function postToCartAPI(endpoint, body) {
   }
 }
 
+// Cambia la cantidad de una línea del carrito de invitado.
+function setGuestQuantity(cartItemId, newQty) {
+  const items = getGuestCart();
+  const item = items.find(i => guestKey(i) === cartItemId);
+  if (!item) return;
+
+  item.quantity = newQty;
+  saveGuestCart(items);
+}
+
+function removeFromGuestCart(cartItemId) {
+  const items = getGuestCart().filter(i => guestKey(i) !== cartItemId);
+  saveGuestCart(items);
+}
+
+// ---------------------------------------------------------------------------
+// Botones de cantidad y de eliminar
+// ---------------------------------------------------------------------------
+
 document.getElementById('cart-items-container')?.addEventListener('click', async e => {
-  const jwt = localStorage.getItem("jwt");
-  if (!jwt) return; // No hacer nada si no hay sesión
+  const jwt = localStorage.getItem('jwt');
+  const esInvitado = !jwt;
 
   const quantityButton = e.target.closest('.qty-btn');
-  const removeButton = e.target.closest('.item-remove');
 
-  // --- LÓGICA PARA BOTONES DE CANTIDAD (+ y -) ---
+  // --- BOTONES DE CANTIDAD (+ y -) ---
   if (quantityButton) {
     const cart_item_id = quantityButton.dataset.id;
     const action = quantityButton.dataset.action;
     const quantityContainer = quantityButton.parentElement;
     const input = quantityContainer.querySelector('input');
-    const stock = parseInt(quantityContainer.dataset.stock); // Leemos el stock del data-attribute
+    const stock = parseInt(quantityContainer.dataset.stock);
     const currentQty = parseInt(input.value);
     let newQty;
 
     if (action === 'increase') {
-      // ¡VERIFICACIÓN DE STOCK!
       if (currentQty >= stock) {
         Swal.fire({ icon: 'warning', title: 'Stock máximo alcanzado', text: `Solo hay ${stock} unidades disponibles.` });
-        return; // Detenemos la ejecución si se excede el stock
+        return;
       }
       newQty = currentQty + 1;
     } else {
@@ -193,37 +395,42 @@ document.getElementById('cart-items-container')?.addEventListener('click', async
 
     input.value = newQty;
 
+    if (esInvitado) {
+      setGuestQuantity(cart_item_id, newQty);
+      loadCart();
+      return;
+    }
+
     const result = await postToCartAPI('/php/cart/update_cart', { cart_item_id: cart_item_id, cantidad: newQty });
-    console.log('Resultado de la actualización del carrito:', result);
-    console.log('Cantidad actual:', currentQty, 'Nueva cantidad:', newQty);
     if (result && result.success) {
-      // Si el backend confirma el cambio, AHORA SÍ recargamos el carrito.
       loadCart();
     } else {
-      // Si el backend falla, revertimos el cambio visual y mostramos el error.
       input.value = currentQty;
       Swal.fire('Error', (result && result.message) || 'No se pudo actualizar la cantidad.', 'error');
     }
   }
 
-  // --- LÓGICA PARA BOTÓN DE ELIMINAR ---
+  // --- BOTÓN DE ELIMINAR ---
   if (e.target.closest('.item-remove')) {
     const cart_item_id = e.target.closest('.item-remove').dataset.id;
 
-    // Opcional: Alerta de confirmación
     Swal.fire({
-      title: '¿Eliminar Artículo?',
-      text: "¿Estás seguro de que deseas eliminar este artículo de tu carrito?",
+      title: '¿Eliminar artículo?',
+      text: '¿Estás seguro de que deseas eliminar este artículo de tu carrito?',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#3f1e1f',
       cancelButtonColor: '#6b7280',
-      confirmButtonText: 'Sí, eliminarlo!'
+      confirmButtonText: 'Sí, eliminarlo'
     }).then(async (result) => {
-      if (result.isConfirmed) {
+      if (!result.isConfirmed) return;
+
+      if (esInvitado) {
+        removeFromGuestCart(cart_item_id);
+      } else {
         await postToCartAPI('/php/cart/remove_from_cart', { cart_item_id: cart_item_id });
-        loadCart(); // Recarga el carrito
       }
+      loadCart();
     });
   }
 });
