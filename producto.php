@@ -428,9 +428,15 @@ $wholesale_whatsapp_text = rawurlencode(
             </div>
 
             <div class="actions-container" style="display: flex; align-items: center; margin-top: 15px;">
-              <button class="add-to-cart-btn">Comprar por WhatsApp</button>
+              <button class="add-to-cart-btn">Agregar al carrito</button>
               <button id="wishlist-btn" style="background:none; border:none; cursor:pointer; font-size: 1.5em; color: #3c3737; margin-left: 15px;">
                 <i class="far fa-heart"></i>
+              </button>
+            </div>
+
+            <div class="secondary-actions" style="margin-top: 12px;">
+              <button type="button" class="buy-whatsapp-btn">
+                <i class="fab fa-whatsapp"></i> Comprar por WhatsApp
               </button>
             </div>
 
@@ -571,7 +577,7 @@ $wholesale_whatsapp_text = rawurlencode(
           }
         }
         addToCartBtn.disabled = availableStock <= 0;
-        addToCartBtn.textContent = availableStock <= 0 ? "Sin Stock" : "Comprar por WhatsApp";
+        addToCartBtn.textContent = availableStock <= 0 ? "Sin Stock" : "Agregar al carrito";
       }
       colorBtns.forEach(btn => {
         btn.addEventListener('click', function() {
@@ -610,23 +616,15 @@ $wholesale_whatsapp_text = rawurlencode(
           qtyInput.value = value - 1;
         }
       });
-      addToCartBtn.addEventListener('click', function() {
-        // Validar selección de variantes
+      // Validación compartida por los dos botones (carrito y WhatsApp).
+      // Devuelve null si algo falta; si no, los datos de la selección actual.
+      function getValidatedSelection() {
         if ((colorBtns.length > 0 && !selectedColorId) || (sizeBtns.length > 0 && !selectedSizeId)) {
           Swal.fire({
             icon: 'warning',
             text: 'Seleccione color y talla.'
           });
-          return;
-        }
-
-        // Validar stock
-        if (parseInt(qtyInput.value) > availableStock) {
-          Swal.fire({
-            icon: 'error',
-            text: `Solo quedan ${availableStock} unidades en stock.`
-          });
-          return;
+          return null;
         }
 
         if (availableStock <= 0) {
@@ -634,46 +632,76 @@ $wholesale_whatsapp_text = rawurlencode(
             icon: 'error',
             text: 'Este producto no tiene stock disponible.'
           });
-          return;
+          return null;
         }
 
-        // ====== DATOS PARA EL MENSAJE ======
-        const quantity = parseInt(qtyInput.value);
+        if (parseInt(qtyInput.value) > availableStock) {
+          Swal.fire({
+            icon: 'error',
+            text: `Solo quedan ${availableStock} unidades en stock.`
+          });
+          return null;
+        }
 
-        // Obtener nombre del color seleccionado
         let selectedColorName = 'No aplica';
         if (selectedColorId) {
           const selectedColorBtn = document.querySelector(`.color-btn[data-color-id="${selectedColorId}"]`);
           selectedColorName = selectedColorBtn ? selectedColorBtn.getAttribute('title') : 'No especificado';
         }
 
-        // Obtener nombre de la talla seleccionada
         let selectedSizeName = 'No aplica';
         if (selectedSizeId) {
           const selectedSizeBtn = document.querySelector(`.size-btn[data-size-id="${selectedSizeId}"]`);
           selectedSizeName = selectedSizeBtn ? selectedSizeBtn.textContent.trim() : 'No especificada';
         }
 
-        const productName = <?php echo json_encode($producto['name']); ?>;
-        const productPrice = <?php echo json_encode(number_format($producto['price'], 2)); ?>;
-        const productUrl = window.location.href;
+        return {
+          quantity: parseInt(qtyInput.value),
+          colorId: selectedColorId,
+          sizeId: selectedSizeId,
+          colorName: selectedColorName,
+          sizeName: selectedSizeName
+        };
+      }
 
-        // ⚠️ CAMBIA ESTE NÚMERO por el WhatsApp real del negocio (con código país, sin + ni espacios)
-        const whatsappNumber = <?php echo json_encode($whatsapp_number); ?>;
+      // Botón principal: añadir al carrito
+      addToCartBtn.addEventListener('click', function() {
+        const seleccion = getValidatedSelection();
+        if (!seleccion) return;
 
-        const message = `Hola, quiero comprar este producto:%0A%0A` +
-          `🧢 Producto: ${productName}%0A` +
-          `🎨 Color: ${selectedColorName}%0A` +
-          `📏 Talla: ${selectedSizeName}%0A` +
-          `🔢 Cantidad: ${quantity}%0A` +
-          `💲 Precio: $${productPrice}%0A%0A` +
-          `🔗 Link: ${productUrl}`;
-
-        const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${message}`;
-
-        // Redirigir a WhatsApp
-        window.open(whatsappUrl, '_blank');
+        addToCart({
+          id: productId,
+          quantity: seleccion.quantity,
+          color: seleccion.colorId,
+          size: seleccion.sizeId
+        });
       });
+
+      // Botón secundario: comprar por WhatsApp
+      const buyWhatsappBtn = document.querySelector('.buy-whatsapp-btn');
+      if (buyWhatsappBtn) {
+        buyWhatsappBtn.addEventListener('click', function() {
+          const seleccion = getValidatedSelection();
+          if (!seleccion) return;
+
+          const productName = <?php echo json_encode($producto['name']); ?>;
+          const productPrice = <?php echo json_encode(number_format($producto['price'], 2)); ?>;
+          const productUrl = window.location.href;
+          const whatsappNumber = <?php echo json_encode($whatsapp_number); ?>;
+
+          const message = encodeURIComponent(
+            `Hola, quiero comprar este producto:\n\n` +
+            `🧢 Producto: ${productName}\n` +
+            `🎨 Color: ${seleccion.colorName}\n` +
+            `📏 Talla: ${seleccion.sizeName}\n` +
+            `🔢 Cantidad: ${seleccion.quantity}\n` +
+            `💲 Precio: $${productPrice}\n\n` +
+            `🔗 Link: ${productUrl}`
+          );
+
+          window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+        });
+      }
 
       const initialColorId = colorBtns.length > 0 ? colorBtns[0].dataset.colorId : 'default';
       if (colorBtns.length > 0) {

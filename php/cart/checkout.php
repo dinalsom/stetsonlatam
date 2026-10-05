@@ -150,7 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'title' => 'Costo de Envío',
                 'quantity' => 1,
                 'unit_price' => $shipping_cost,
-                'currency_id' => 'COP'
+                // Debe coincidir con la moneda de los productos: Mercado Pago
+                // rechaza una preferencia que mezcle dos monedas distintas.
+                'currency_id' => 'USD'
             ];
         }
 

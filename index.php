@@ -96,18 +96,12 @@ try {
 
     <?php include 'footer.php'; ?>
     <?php include 'modal.php'; ?>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-8V3PPJ187J"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-
-        function gtag() {
-            dataLayer.push(arguments);
-        }
-        gtag('js', new Date());
-
-        gtag('config', 'G-8V3PPJ187J');
-    </script>
+    <!--
+      La etiqueta de GA4 (G-8V3PPJ187J) estaba aquí en duro y además se dispara
+      desde Google Tag Manager, lo que contaba dos veces cada visita al inicio.
+      Ahora GA4 se configura solo desde GTM, que se carga en header.php y por lo
+      tanto en todas las páginas del sitio.
+    -->
 </body>
 
 </html>

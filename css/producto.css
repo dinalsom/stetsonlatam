@@ -139,6 +139,38 @@
     border: 1px solid #3c3737;
 }
 
+.add-to-cart-btn:disabled {
+    background-color: #b9b2b2;
+    cursor: not-allowed;
+}
+
+/* Botón secundario: compra por WhatsApp */
+.buy-whatsapp-btn {
+    width: 100%;
+    background-color: transparent;
+    color: #3c3737;
+    font-weight: 600;
+    padding: 0.7rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid #c9c2c2;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.buy-whatsapp-btn i {
+    color: #25d366;
+    font-size: 1.15em;
+}
+
+.buy-whatsapp-btn:hover {
+    border-color: #3c3737;
+    color: #000;
+}
+
 /* Descripción Larga */
 .description-group {
     margin-top: 2.5rem;
