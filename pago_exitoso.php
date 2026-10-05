@@ -20,6 +20,14 @@ $pedido_id = isset($_GET['pedido_id']) ? htmlspecialchars($_GET['pedido_id']) : 
         <p class="text-gray-600 mb-6">Tu pago ha sido procesado exitosamente.</p>
         <p class="text-gray-700">Tu número de pedido es: <strong class="text-indigo-600">#<?php echo $pedido_id; ?></strong></p>
         <p class="text-gray-500 text-sm mt-2">Pronto recibirás un correo de confirmación.</p>
+        <p class="text-gray-500 text-sm mt-2">Creamos una cuenta con tu correo para que puedas seguir tu pedido. Para entrar, usa la opción <strong>¿Olvidaste tu contraseña?</strong> y elige una.</p>
+
+        <script>
+            // La compra se completó: el carrito guardado en el navegador ya no sirve.
+            try {
+                localStorage.removeItem('guest_cart');
+            } catch (e) {}
+        </script>
         <a href="/" class="mt-8 inline-block bg-[#e68019] text-white font-bold py-2 px-4 rounded hover:bg-opacity-90">
             Volver a la Tienda
         </a>

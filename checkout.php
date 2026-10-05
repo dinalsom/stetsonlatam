@@ -124,13 +124,19 @@
 
     <body>
         <script>
-            // El checkout necesita cuenta: es donde se guardan el pedido, la
-            // dirección y el pago. Un invitado que llegue aquí directamente
-            // vuelve al carrito, donde se le ofrece crear la cuenta sin perder
-            // lo que ya había añadido.
-            if (!localStorage.getItem('jwt')) {
-                window.location.replace('/cart');
-            }
+            // Un invitado puede comprar sin registrarse: la cuenta se crea sola
+            // con los datos de envío. Si llega aquí sin sesión y sin carrito,
+            // lo devolvemos al carrito en lugar de mostrarle un formulario vacío.
+            (function() {
+                if (localStorage.getItem('jwt')) return;
+                var items = [];
+                try {
+                    items = JSON.parse(localStorage.getItem('guest_cart') || '[]');
+                } catch (e) {}
+                if (!Array.isArray(items) || items.length === 0) {
+                    window.location.replace('/cart');
+                }
+            })();
         </script>
 
         <?php include 'header.php'; ?>
@@ -234,9 +240,19 @@
                 const shippingError = document.getElementById('shipping-error');
 
                 let currentShippingCost = 0;
-                // Simulación del subtotal del carrito. En una implementación real,
-                // este valor vendría de otra llamada a la API o se pasaría desde la página anterior.
+                // Con sesión iniciada el subtotal lo calcula PHP desde la base de datos.
+                // Para un invitado llega en 0 y lo completamos abajo con su carrito.
                 let cartSubtotal = <?php echo $cart_subtotal; ?>;
+
+                // Carrito del invitado: se envía con el pedido y sirve para pintar el resumen.
+                let guestItems = [];
+                if (!localStorage.getItem('jwt')) {
+                    try {
+                        guestItems = JSON.parse(localStorage.getItem('guest_cart') || '[]');
+                    } catch (e) {
+                        guestItems = [];
+                    }
+                }
 
                 // --- FUNCIONES AUXILIARES ---
                 function formatCurrency(value) {
@@ -249,6 +265,30 @@
                     shippingCostEl.textContent = currentShippingCost > 0 ? formatCurrency(currentShippingCost) : '--';
                     totalEl.textContent = formatCurrency(newTotal);
                 }
+
+                // Para el invitado pedimos al servidor los precios reales de su
+                // carrito. Nunca se confía en un precio guardado en el navegador.
+                async function cargarSubtotalInvitado() {
+                    if (guestItems.length === 0) return;
+                    try {
+                        const res = await fetch('/php/cart/guest_cart', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ items: guestItems })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            cartSubtotal = data.cart.reduce(function(suma, item) {
+                                return suma + (parseFloat(item.price) * parseInt(item.quantity));
+                            }, 0);
+                            updateTotal();
+                        }
+                    } catch (error) {
+                        console.error('No se pudo calcular el subtotal:', error);
+                    }
+                }
+
+                cargarSubtotalInvitado();
 
                 // --- FUNCIÓN PRINCIPAL PARA OBTENER TARIFA DE ENVÍO ---
                 async function getShippingRate() {
@@ -335,20 +375,26 @@
                 form.addEventListener('submit', async function(e) {
                     e.preventDefault();
                     const jwt = localStorage.getItem('jwt');
-                    if (!jwt) {
-                        Swal.fire('Error', 'Debes iniciar sesión para completar la compra.', 'error');
-                        return;
-                    }
 
                     const formData = new FormData(form);
+                    const headers = {};
+
+                    if (jwt) {
+                        headers['Authorization'] = 'Bearer ' + jwt;
+                    } else {
+                        // Compra sin registro: el carrito viaja con el pedido y el
+                        // servidor crea la cuenta con estos mismos datos de envío.
+                        if (guestItems.length === 0) {
+                            Swal.fire('Carrito vacío', 'No hay artículos para comprar.', 'warning');
+                            return;
+                        }
+                        formData.append('guest_items', JSON.stringify(guestItems));
+                    }
 
                     try {
-                        // Ahora el 'await' es válido
                         const res = await fetch('/php/cart/checkout', {
                             method: 'POST',
-                            headers: {
-                                'Authorization': 'Bearer ' + jwt
-                            },
+                            headers: headers,
                             body: formData
                         });
 

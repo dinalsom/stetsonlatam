@@ -128,25 +128,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      // El pago sí requiere cuenta: es donde se guardan el pedido y la dirección.
-      if (!localStorage.getItem('jwt')) {
-        Swal.fire({
-          icon: 'info',
-          title: 'Un último paso',
-          text: 'Para finalizar tu compra necesitas una cuenta. Tu carrito se conserva.',
-          showCancelButton: true,
-          confirmButtonText: 'Crear cuenta o entrar',
-          cancelButtonText: 'Seguir viendo',
-          confirmButtonColor: '#3f1e1f',
-          cancelButtonColor: '#6b7280'
-        }).then((result) => {
-          if (result.isConfirmed && typeof openAuthModal === 'function') {
-            openAuthModal(true);
-          }
-        });
-        return;
-      }
-
+      // El invitado también pasa directo al checkout: la cuenta se crea sola
+      // con los datos de envío, sin pedirle que se registre.
       window.location.href = checkoutBtn.href;
     });
   }

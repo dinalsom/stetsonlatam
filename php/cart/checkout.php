@@ -31,21 +31,147 @@ function getAuthorizationHeader()
     return null;
 }
 
+/**
+ * Devuelve el id de usuario para una compra sin registro.
+ *
+ * Si el correo ya tiene cuenta, el pedido se asocia a esa cuenta. Si no,
+ * crea una cuenta nueva con una contraseña aleatoria que nadie conoce: el
+ * cliente la establece después con "olvidé mi contraseña" si quiere entrar.
+ */
+function resolverUsuarioInvitado(mysqli $conn): int
+{
+    $nombre = trim(strip_tags($_POST['nombre'] ?? ''));
+    $email  = trim(filter_var($_POST['email'] ?? '', FILTER_SANITIZE_EMAIL));
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new Exception('Necesitamos un correo electrónico válido para enviarte la confirmación.');
+    }
+    if ($nombre === '') {
+        throw new Exception('Necesitamos tu nombre completo.');
+    }
+
+    // ¿Ya existe una cuenta con ese correo?
+    $stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $fila = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($fila) {
+        return (int)$fila['id'];
+    }
+
+    // Cuenta nueva con contraseña aleatoria: no se envía a nadie ni se usa.
+    $password_hash = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+
+    $stmt = $conn->prepare("INSERT INTO users (name, email, password) VALUES (?, ?, ?)");
+    $stmt->bind_param("sss", $nombre, $email, $password_hash);
+
+    if (!$stmt->execute()) {
+        $stmt->close();
+        throw new Exception('No pudimos registrar tus datos. Intenta de nuevo.');
+    }
+
+    $nuevo_id = $conn->insert_id;
+    $stmt->close();
+
+    return (int)$nuevo_id;
+}
+
+/**
+ * Pasa el carrito que venía en el navegador del invitado a la tabla `cart`.
+ *
+ * Solo se aceptan identificadores y cantidades: el precio y el stock se leen
+ * de la base de datos. Antes de insertar se limpia el carrito de ese usuario
+ * para que el pedido contenga exactamente lo que el cliente vio en pantalla.
+ */
+function volcarCarritoInvitado(mysqli $conn, int $user_id, string $items_json): void
+{
+    $items = json_decode($items_json, true);
+
+    if (!is_array($items) || count($items) === 0) {
+        throw new Exception('Tu carrito está vacío.');
+    }
+
+    $stmt_limpiar = $conn->prepare("DELETE FROM cart WHERE users_id = ?");
+    $stmt_limpiar->bind_param("i", $user_id);
+    $stmt_limpiar->execute();
+    $stmt_limpiar->close();
+
+    $stmt_stock = $conn->prepare("SELECT stock FROM product_variants WHERE product_id = ? AND color_id = ? AND size_id = ?");
+    $stmt_insert = $conn->prepare("INSERT INTO cart (users_id, producto_id, quantity, color_id, size_id) VALUES (?, ?, ?, ?, ?)");
+
+    $insertados = 0;
+
+    foreach ($items as $item) {
+        $producto_id = isset($item['producto_id']) ? (int)$item['producto_id'] : 0;
+        $color_id    = isset($item['color_id'])    ? (int)$item['color_id']    : 0;
+        $size_id     = isset($item['size_id'])     ? (int)$item['size_id']     : 0;
+        $cantidad    = isset($item['quantity'])    ? (int)$item['quantity']    : 0;
+
+        if ($producto_id <= 0 || $color_id <= 0 || $size_id <= 0 || $cantidad <= 0) {
+            continue;
+        }
+
+        $stmt_stock->bind_param("iii", $producto_id, $color_id, $size_id);
+        $stmt_stock->execute();
+        $variante = $stmt_stock->get_result()->fetch_assoc();
+
+        if (!$variante) {
+            continue;
+        }
+
+        $stock = (int)$variante['stock'];
+        if ($stock <= 0) {
+            continue;
+        }
+
+        // Nunca se vende más de lo que hay en bodega.
+        $cantidad = min($cantidad, $stock);
+
+        $stmt_insert->bind_param("iiiii", $user_id, $producto_id, $cantidad, $color_id, $size_id);
+        $stmt_insert->execute();
+        $insertados++;
+    }
+
+    $stmt_stock->close();
+    $stmt_insert->close();
+
+    if ($insertados === 0) {
+        throw new Exception('Los artículos de tu carrito ya no están disponibles.');
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $transaction_started = false;
     try {
         // 2. CONFIGURA TUS CREDENCIALES DE MERCADO PAGO (SANDBOX PARA PRUEBAS)
         $access_token = "APP_USR-7493389823882807-112515-74cf048ad84435669297aeae24865865-12742422";
 
-        // (Aquí va tu código para validar el JWT y obtener el user_id... es el mismo que ya tienes)
-        $authHeader = getAuthorizationHeader();
-        if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
-            throw new Exception('Token no proporcionado.');
-        }
-        $jwt = trim(str_replace('Bearer', '', $authHeader));
         $secret_key = "StetsonLatam1977";
-        $decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
-        $user_id = $decoded->data->id;
+        $authHeader = getAuthorizationHeader();
+
+        if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
+            // --- Compra con sesión iniciada ---
+            $jwt = trim(str_replace('Bearer', '', $authHeader));
+            $decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
+            $user_id = $decoded->data->id;
+        } else {
+            // --- Compra sin registro (cuenta silenciosa) ---
+            //
+            // El visitante nunca ve un formulario de registro: con el nombre y
+            // el correo que da para el envío se busca su cuenta y, si no existe,
+            // se crea una con una contraseña aleatoria. Después puede entrar
+            // usando "olvidé mi contraseña".
+            $user_id = resolverUsuarioInvitado($conn);
+
+            // El carrito del invitado vive en su navegador, así que llega con el
+            // pedido. Se vuelca a la tabla `cart` para que el resto del proceso
+            // (totales, detalle del pedido y Mercado Pago) funcione igual que
+            // con un usuario registrado. Los precios SIEMPRE salen de la base de
+            // datos, nunca de lo que mandó el navegador.
+            volcarCarritoInvitado($conn, $user_id, $_POST['guest_items'] ?? '[]');
+        }
 
         if (isset($_POST['save_address']) && $_POST['save_address'] === 'true') {
             $stmt_save_addr = $conn->prepare(
