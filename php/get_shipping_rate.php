@@ -3,36 +3,33 @@
 require_once 'conexion.php';
 header('Content-Type: application/json');
 
-// --- CONFIGURACIÓN ---
-$api_key = 'fb6bafe141d0995b2110e976'; // <-- PEGA AQUÍ TU API KEY
-$base_currency = 'COP'; // Moneda en la que están guardados tus precios
-$target_currency = 'USD'; // Moneda a la que quieres convertir
+require_once __DIR__ . '/currency.php';
+require_once __DIR__ . '/shipping_config.php';
 
-// --- FUNCIÓN PARA OBTENER LA TASA DE CAMBIO (CON CACHÉ) ---
-function get_conversion_rate($api_key, $base, $target)
-{
-   $cache_file = __DIR__ . '/currency_cache.json';
-   $cache_lifetime = 3600 * 12; // Actualizar cada 12 horas
+$api_key        = CURRENCY_API_KEY;
+$base_currency  = CURRENCY_BASE;
+$target_currency = CURRENCY_TARGET;
 
-   if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_lifetime) {
-      // Si el caché es reciente, lo usamos
-      $cache = json_decode(file_get_contents($cache_file), true);
-      return $cache['conversion_rates'][$target] ?? null;
-   } else {
-      // Si el caché es viejo o no existe, llamamos al API
-      $url = "https://v6.exchangerate-api.com/v6/{$api_key}/latest/{$base}";
-      $response = @file_get_contents($url);
-      if ($response === FALSE) {
-         return null; // Error al contactar el API
-      }
+$pais = trim($_GET['pais'] ?? PAIS_LOCAL);
 
-      $data = json_decode($response, true);
-      if ($data && $data['result'] === 'success') {
-         file_put_contents($cache_file, $response); // Guardamos la respuesta en el caché
-         return $data['conversion_rates'][$target] ?? null;
-      }
-      return null;
+// Envío internacional: tarifa plana por zona, ya expresada en dólares.
+// No pasa por la tabla de departamentos ni por la conversión de moneda.
+if (!es_envio_nacional($pais)) {
+   // País fuera de los territorios habilitados: no se cotiza ni se vende.
+   if (!pais_tiene_envio($pais)) {
+      echo json_encode([
+         'success' => false,
+         'message' => 'Por ahora no realizamos envíos a ese país.'
+      ]);
+      exit;
    }
+
+   echo json_encode([
+      'success' => true,
+      'price'   => tarifa_envio_internacional($pais),
+      'label'   => 'Envío internacional a ' . $pais
+   ]);
+   exit;
 }
 
 // Normalizamos la entrada para mejorar las coincidencias (ej. "Bogota D.C." -> "Bogota")

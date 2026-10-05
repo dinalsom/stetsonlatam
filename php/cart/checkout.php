@@ -6,6 +6,8 @@ error_reporting(E_ALL);
 
 // 1. Asegúrate que la ruta a autoload.php y conexion.php sea correcta
 require '../conexion.php';
+require_once '../currency.php';
+require_once '../shipping_config.php';
 require '../../vendor/autoload.php';
 
 use Firebase\JWT\JWT;
@@ -212,18 +214,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // 2. Calcular el costo de envío (verificándolo en el backend por seguridad)
+        //
+        // Nunca se usa el valor que mandó el navegador: el envío se recalcula
+        // aquí a partir del país y el departamento del pedido.
         $shipping_cost = 0;
+        $pais = $_POST['pais'] ?? PAIS_LOCAL;
         $department = $_POST['estado'] ?? ''; // 'estado' es el name de tu campo de departamento
 
-        if (!empty($department)) {
+        if (!es_envio_nacional($pais)) {
+            // Envío internacional: tarifa plana por zona, ya en dólares.
+            $shipping_cost = tarifa_envio_internacional($pais);
+        } elseif (!empty($department)) {
             $stmt_rate = $conn->prepare("SELECT price FROM shipping_rates WHERE departamento = ?");
             $stmt_rate->bind_param("s", $department);
             $stmt_rate->execute();
             $rate_result = $stmt_rate->get_result()->fetch_assoc();
             if ($rate_result) {
-                $shipping_cost = (float)$rate_result['price'];
+                // La tarifa nacional está guardada en COP y el cobro es en USD.
+                // Se convierte con la misma tasa que vio el cliente en pantalla.
+                $shipping_cost = convertir_envio_a_moneda_de_cobro((float)$rate_result['price']);
+            } else {
+                throw new Exception('No tenemos envíos disponibles para ese departamento. Escríbenos y lo resolvemos.');
             }
             $stmt_rate->close();
+        } else {
+            throw new Exception('Necesitamos tu departamento para calcular el envío.');
         }
 
         // 3. Calcular el total final
@@ -287,17 +302,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nombre_completo = explode(' ', $_POST['nombre'], 2);
         $first_name = $nombre_completo[0];
         $last_name = $nombre_completo[1] ?? '';
+        // El documento de identidad solo es obligatorio para pagadores
+        // colombianos. Mandarlo vacío hace que Mercado Pago rechace la
+        // preferencia, así que solo se incluye cuando viene diligenciado.
+        $payer = [
+            'first_name' => $first_name,
+            'last_name'  => $last_name,
+            'email'      => $_POST['email']
+        ];
+
+        if (!empty($_POST['docNumber'])) {
+            $payer['identification'] = [
+                'type'   => $_POST['docType'] ?? 'CC',
+                'number' => $_POST['docNumber']
+            ];
+        }
+
         // 4.2. Construimos el cuerpo completo de la petición (el "payload")
         $preference_data = [
-            'payer' => [
-                'first_name' => $first_name,
-                'last_name' => $last_name,
-                'email' => $_POST['email'],
-                'identification' => [
-                    'type' => $_POST['docType'],
-                    'number' => $_POST['docNumber']
-                ]
-            ],
+            'payer' => $payer,
             'items' => $mp_items,
             'back_urls' => [
                 'success' => 'https://stetsonlatam.com/pago/exitoso/' . $pedido_id,

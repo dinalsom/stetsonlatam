@@ -3,6 +3,7 @@
 
     if (session_status() !== PHP_SESSION_ACTIVE) session_start();
     require_once 'php/conexion.php';
+    require_once 'php/shipping_config.php';
 
     // --- OBTENER DATOS DEL USUARIO AL CARGAR LA PÁGINA ---
     $user_id = $_SESSION['user_id'] ?? null;
@@ -165,31 +166,48 @@
                         </div>
                     <?php endif; ?>
 
+                    <label class="block">
+                        <span class="text-sm font-medium text-gray-700 mb-1 block">País de entrega</span>
+                        <select name="pais" id="pais-select" class="form-input" required>
+                            <?php foreach (paises_con_envio() as $pais_opcion): ?>
+                                <option value="<?php echo htmlspecialchars($pais_opcion); ?>">
+                                    <?php echo htmlspecialchars($pais_opcion); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+
                     <input name="nombre" class="form-input" placeholder="Nombre completo" value="<?php echo htmlspecialchars($user_name); ?>" required>
-                    <div class="flex gap-4">
+
+                    <div class="flex gap-4" id="documento-group">
                         <label class="flex flex-col" style="width: 33.33%;">
-                            <p class="text-sm font-medium text-gray-700 mb-1">Tipo Documento</p>
-                            <select name="docType" class="form-input" required>
+                            <p class="text-sm font-medium text-gray-700 mb-1">Tipo de documento</p>
+                            <select name="docType" class="form-input">
                                 <option value="CC">CC</option>
                                 <option value="CE">CE</option>
                                 <option value="NIT">NIT</option>
-                                <option value="PAS">PAS</option>
+                                <option value="PAS">Pasaporte</option>
                             </select>
                         </label>
                         <label class="flex flex-col flex-1">
-                            <p class="text-sm font-medium text-gray-700 mb-1">Número de Documento</p>
-                            <input name="docNumber" placeholder="Tu número de documento" class="form-input" required />
+                            <p class="text-sm font-medium text-gray-700 mb-1" id="documento-label">Número de documento</p>
+                            <input name="docNumber" id="docNumber" placeholder="Tu número de documento" class="form-input" />
                         </label>
                     </div>
-                    <input type="email" name="email" class="form-input" placeholder="Email" value="<?php echo htmlspecialchars($user_email); ?>" required>
-                    <input name="direccion" class="form-input" placeholder="Dirección" required>
+
+                    <input type="email" name="email" class="form-input" placeholder="Correo electrónico" value="<?php echo htmlspecialchars($user_email); ?>" required>
+                    <input name="direccion" class="form-input" placeholder="Dirección (calle, número, apartamento)" required>
                     <div class="grid grid-cols-2 gap-4">
                         <input name="ciudad" class="form-input" placeholder="Ciudad" required>
-                        <input name="estado" class="form-input" placeholder="Departamento" required>
+                        <input name="estado" id="estado-input" class="form-input" placeholder="Departamento" required>
                     </div>
-                    <input name="zip" class="form-input" placeholder="Código Postal" required>
-                    <input name="pais" class="form-input" placeholder="País" value="Colombia" required>
-                    <input name="telefono" class="form-input" placeholder="Teléfono" required>
+                    <input name="zip" id="zip-input" class="form-input" placeholder="Código postal">
+                    <input name="telefono" class="form-input" placeholder="Teléfono (con indicativo del país)" required>
+
+                    <p id="aviso-aduana" class="text-sm text-gray-600 bg-gray-50 border-l-4 border-gray-300 p-3 mt-2" style="display:none;">
+                        Los aranceles e impuestos de importación de tu país no están incluidos en este precio
+                        y los paga quien recibe el pedido.
+                    </p>
 
                     <div class="flex max-w-[480px] items-center gap-4 px-4 py-3">
                         <input type="checkbox" id="save-address" name="save_address" value="true" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
@@ -230,6 +248,7 @@
                 const form = document.getElementById('checkout-form');
                 const addressSelect = document.getElementById('address-select');
                 const departmentInput = document.querySelector('input[name="estado"]');
+                const paisSelect = document.getElementById('pais-select');
 
                 const shippingCostEl = document.getElementById('summary-shipping');
                 const totalEl = document.getElementById('summary-total');
@@ -293,8 +312,13 @@
                 // --- FUNCIÓN PRINCIPAL PARA OBTENER TARIFA DE ENVÍO ---
                 async function getShippingRate() {
                     const department = departmentInput.value;
+                    const pais = paisSelect ? paisSelect.value : 'Colombia';
+                    const esNacional = (pais === 'Colombia');
 
-                    if (department.trim().length < 3) {
+                    // En Colombia la tarifa depende del departamento; fuera del
+                    // país es una tarifa plana por zona, así que no hace falta
+                    // esperar a que escriban la región.
+                    if (esNacional && department.trim().length < 3) {
                         shippingContainer.style.display = 'none';
                         shippingError.textContent = '';
                         currentShippingCost = 0;
@@ -307,7 +331,7 @@
                     shippingError.textContent = '';
 
                     try {
-                        const res = await fetch(`/php/shipping-rate?departamento=${encodeURIComponent(department)}`);
+                        const res = await fetch(`/php/shipping-rate?departamento=${encodeURIComponent(department)}&pais=${encodeURIComponent(pais)}`);
                         const data = await res.json();
 
                         if (data.success) {
@@ -344,6 +368,55 @@
                 // 1. Calcular envío cuando se llene el campo "Departamento"
                 if (departmentInput) {
                     departmentInput.addEventListener('blur', getShippingRate);
+                }
+
+                // --- Adaptación del formulario al país elegido ---
+                function adaptarFormularioAlPais() {
+                    if (!paisSelect) return;
+
+                    const pais = paisSelect.value;
+                    const esColombia = (pais === 'Colombia');
+
+                    // La región cambia de nombre según el país.
+                    if (departmentInput) {
+                        departmentInput.placeholder = esColombia ?
+                            'Departamento' :
+                            'Estado / Provincia / Región';
+                    }
+
+                    // Fuera de Colombia muchos países no usan código postal.
+                    const zipInput = document.getElementById('zip-input');
+                    if (zipInput) {
+                        zipInput.placeholder = esColombia ?
+                            'Código postal' :
+                            'Código postal / ZIP (si aplica)';
+                    }
+
+                    // El documento de identidad solo lo exige la pasarela en Colombia.
+                    const docGroup = document.getElementById('documento-group');
+                    const docNumber = document.getElementById('docNumber');
+                    const docLabel = document.getElementById('documento-label');
+                    if (docGroup && docNumber) {
+                        docNumber.required = esColombia;
+                        if (docLabel) {
+                            docLabel.textContent = esColombia ?
+                                'Número de documento' :
+                                'Documento o pasaporte (opcional)';
+                        }
+                    }
+
+                    // Aviso de aranceles solo para envíos al exterior.
+                    const avisoAduana = document.getElementById('aviso-aduana');
+                    if (avisoAduana) {
+                        avisoAduana.style.display = esColombia ? 'none' : 'block';
+                    }
+
+                    getShippingRate();
+                }
+
+                if (paisSelect) {
+                    paisSelect.addEventListener('change', adaptarFormularioAlPais);
+                    adaptarFormularioAlPais();
                 }
 
                 // 2. Autocompletar formulario si se elige una dirección guardada
